@@ -14,7 +14,7 @@ class ProcessRequest(BaseModel):
 class ToolResult(BaseModel):
     tool: str
     success: bool
-    result: str = ""  # <-- значение по умолчанию
+    result: str = ""  # значение по умолчанию
     error: Optional[str] = None
 
 
