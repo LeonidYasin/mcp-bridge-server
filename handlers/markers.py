@@ -9,19 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 def extract_file_markers(text: str) -> Dict[str, str]:
-    """
-    Извлекает маркеры ==FILE:...== ==END_FILE==.
-    
-    Пример:
-        ==FILE:test.txt==
-        содержимое файла
-        ==END_FILE==
-    
-    Returns:
-        {filename: content}
-    """
+    """Извлекает маркеры ==FILE:...== ==END_FILE==."""
     files = {}
-    pattern = r'==FILE:([^==]+?)==\s*([\s\S]*?)\s*==END_FILE=='
+    # ИСПРАВЛЕНО: правильный regex с экранированием
+    pattern = r'==FILE:([^=]+?)==\s*([\s\S]*?)\s*==END_FILE=='
     
     for match in re.finditer(pattern, text):
         name = match.group(1).strip()
@@ -33,15 +24,7 @@ def extract_file_markers(text: str) -> Dict[str, str]:
 
 
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """
-    Извлекает маркеры ==MCP:tool== {...}.
-    
-    Пример:
-        ==MCP:create_or_update_file== {"owner":"...","content":"==FILE:test.txt=="}
-    
-    Returns:
-        [{'tool': 'create_or_update_file', 'args': {...}}, ...]
-    """
+    """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
     
     # Удаляем блоки кода
@@ -49,21 +32,19 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
     clean = re.sub(r'textCopyDownload[\s\S]*?(?=```|$)', '', clean)
     clean = re.sub(r'`[^`]*?`', '', clean)
     
-    # Ищем маркеры
-    pattern = r'==MCP:([a-z_]+)==\s*(\{[^]*?\})'
+    # ИСПРАВЛЕНО: правильный regex для поиска маркеров
+    pattern = r'==MCP:([a-z_]+)==\s*(\{[^}]*\})'
     
     for match in re.finditer(pattern, clean):
         tool_name = match.group(1)
         args_str = match.group(2)
         
         # Подставляем содержимое файлов
-        # Ищем ссылку на файл: "content":"==FILE:filename=="
         file_ref = re.search(r'"content":"==FILE:([^"]+?)==', args_str)
         if file_ref:
             filename = file_ref.group(1)
             if filename in file_contents:
                 content = file_contents[filename]
-                # Экранируем для JSON
                 escaped = json.dumps(content)[1:-1]
                 args_str = args_str.replace(
                     f'"content":"==FILE:{filename}=="',
@@ -89,12 +70,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
 
 
 def extract_all_markers(text: str) -> Dict:
-    """
-    Извлекает все маркеры из текста.
-    
-    Returns:
-        {'files': {...}, 'tools': [...]}
-    """
+    """Извлекает все маркеры из текста."""
     files = extract_file_markers(text)
     tools = extract_mcp_tags(text, {})
     return {'files': files, 'tools': tools}
