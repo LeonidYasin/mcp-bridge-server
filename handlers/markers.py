@@ -1,48 +1,16 @@
-"""Извлечение маркеров из текста."""
-
-import re
-import json
-import logging
-from typing import List, Dict
-
-logger = logging.getLogger(__name__)
-
-
-def extract_file_markers(text: str) -> Dict[str, str]:
-    """Извлекает маркеры ==FILE:...== ==END_FILE==."""
-    files = {}
-    pattern = r'==FILE:([^=]+?)==\s*([\s\S]*?)\s*==END_FILE=='
-    for match in re.finditer(pattern, text):
-        name = match.group(1).strip()
-        content = match.group(2).strip()
-        files[name] = content
-        logger.debug(f"📁 Found file marker: {name} ({len(content)} chars)")
-    return files
-
-
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
-    
-    # НЕ УДАЛЯЕМ блоки кода!
-    # Просто ищем маркеры прямо в тексте
-    logger.info(f"🔍 Searching for markers in text (first 300 chars): {text[:300]}...")
     
     # Ищем маркеры ==MCP:tool==
     marker_pattern = r'==MCP:([a-z_]+)=='
     
-    matches_found = 0
     for match in re.finditer(marker_pattern, text):
-        matches_found += 1
         tool_name = match.group(1)
         start_pos = match.end()
-        
-        logger.info(f"🔍 Found marker: ==MCP:{tool_name}== at position {start_pos}")
         
         # Находим JSON объект
         json_start = text.find('{', start_pos)
         if json_start == -1:
-            logger.warning(f"⚠️ No JSON start for {tool_name}")
             continue
         
         # Ищем закрывающую скобку
@@ -53,19 +21,15 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         
         for i in range(json_start, len(text)):
             ch = text[i]
-            
             if escape:
                 escape = False
                 continue
-            
             if ch == '\\':
                 escape = True
                 continue
-            
             if ch == '"' and not escape:
                 in_string = not in_string
                 continue
-            
             if not in_string:
                 if ch == '{':
                     depth += 1
@@ -76,24 +40,32 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
                         break
         
         if json_end == -1:
-            logger.warning(f"⚠️ No JSON end for {tool_name}")
             continue
         
         args_str = text[json_start:json_end]
-        logger.info(f"📄 Args string: {args_str[:200]}...")
         
-        # Подставляем содержимое файлов
-        file_ref = re.search(r'"content":"==FILE:([^"]+?)==', args_str)
-        if file_ref:
-            filename = file_ref.group(1)
-            if filename in file_contents:
-                content = file_contents[filename]
-                escaped = json.dumps(content)[1:-1]
-                args_str = args_str.replace(
-                    f'"content":"==FILE:{filename}=="',
-                    f'"content":"{escaped}"'
-                )
-                logger.info(f"📄 Replaced ==FILE:{filename}== ({len(content)} chars)")
+        # ПРОВЕРКА: если это плейсхолдер, пропускаем
+        if args_str in ['{...}', '{tool_name}']:
+            logger.debug(f"⏭️ Skipping placeholder for {tool_name}")
+            continue
+        
+        # ПРОВЕРКА: если в args_str есть \", значит это экранированный JSON внутри строки
+        if '\\"' in args_str:
+            # Пробуем убрать экранирование
+            try:
+                # Заменяем \" на "
+                fixed_args = args_str.replace('\\"', '"')
+                args = json.loads(fixed_args)
+                tags.append({
+                    'tool': tool_name,
+                    'args': args,
+                    'original': match.group(0) + fixed_args
+                })
+                logger.info(f"🔍 Found marker (fixed): ==MCP:{tool_name}== with args: {args}")
+                continue
+            except:
+                logger.debug(f"⏭️ Skipping escaped JSON for {tool_name}")
+                continue
         
         # Парсим JSON
         try:
@@ -105,10 +77,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
             })
             logger.info(f"✅ Found marker: ==MCP:{tool_name}== with args: {args}")
         except json.JSONDecodeError as e:
-            logger.error(f"❌ JSON parse error for {tool_name}: {e}")
-            logger.error(f"   Args string: {args_str}")
-    
-    if matches_found == 0:
-        logger.warning("⚠️ No markers found in text")
+            # Просто логируем, но не прерываем
+            logger.debug(f"⏭️ Skipping invalid JSON for {tool_name}: {e}")
     
     return tags
