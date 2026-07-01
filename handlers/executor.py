@@ -3,9 +3,40 @@
 import httpx
 import logging
 import json
+import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+async def get_tools_list(mcp_url: str, token: str) -> list:
+    """Получает список доступных инструментов."""
+    if not token:
+        return []
+    
+    if not mcp_url:
+        mcp_url = "http://127.0.0.1:3001/mcp"
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            mcp_url,
+            json={
+                "jsonrpc": "2.0",
+                "id": "list",
+                "method": "tools/list",
+                "params": {}
+            },
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }
+        )
+        
+        if response.status_code != 200:
+            return []
+        
+        data = response.json()
+        return data.get("result", {}).get("tools", [])
 
 
 async def execute_tool(
@@ -25,8 +56,6 @@ async def execute_tool(
     
     # Если args пустой — пробуем извлечь из строки
     if not args:
-        # Ищем JSON в тексте
-        import re
         text = str(args)
         json_match = re.search(r'\{[^}]*\}', text)
         if json_match:
