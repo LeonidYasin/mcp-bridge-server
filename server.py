@@ -48,7 +48,9 @@ async def tools_list():
     """Список доступных инструментов."""
     try:
         tools = await get_tools_list(config.MCP_URL, config.GITHUB_TOKEN)
-        return {"tools": tools}
+        # Извлекаем только имена инструментов
+        tool_names = [t.get("name") for t in tools if t.get("name")]
+        return {"tools": tool_names}
     except Exception as e:
         logger.error(f"Failed to get tools: {e}")
         return {"tools": [], "error": str(e)}
