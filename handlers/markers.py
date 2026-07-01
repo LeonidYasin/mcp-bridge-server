@@ -21,7 +21,7 @@ def extract_file_markers(text: str) -> Dict[str, str]:
 
 
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """Извлекает маркеры ==MCP:tool== {...} с учётом вложенных JSON."""
+    """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
     
     # Удаляем блоки кода
@@ -29,56 +29,39 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
     clean = re.sub(r'textCopyDownload[\s\S]*?(?=```|$)', '', clean)
     clean = re.sub(r'`[^`]*?`', '', clean)
     
-    # Сначала находим все маркеры ==MCP:tool==
+    # Ищем маркеры ==MCP:tool==
     marker_pattern = r'==MCP:([a-z_]+)=='
     
     for match in re.finditer(marker_pattern, clean):
         tool_name = match.group(1)
         start_pos = match.end()
         
-        # Находим открывающую скобку JSON
+        # Находим JSON объект от { до }
+        # Используем простой подход: ищем от { до } с учётом вложенности
         json_start = clean.find('{', start_pos)
         if json_start == -1:
-            logger.warning(f"⚠️ No JSON start for {tool_name}")
             continue
         
-        # Ищем закрывающую скобку с учётом вложенности
+        # Простой поиск — находим всё до последней } 
+        # (предполагаем, что JSON заканчивается на } и после него больше нет {)
         depth = 0
         json_end = -1
-        in_string = False
-        escape_next = False
-        
         for i in range(json_start, len(clean)):
-            char = clean[i]
-            
-            if escape_next:
-                escape_next = False
-                continue
-            
-            if char == '\\':
-                escape_next = True
-                continue
-            
-            if char == '"' and not escape_next:
-                in_string = not in_string
-                continue
-            
-            if not in_string:
-                if char == '{':
-                    depth += 1
-                elif char == '}':
-                    depth -= 1
-                    if depth == 0:
-                        json_end = i + 1
-                        break
+            ch = clean[i]
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    json_end = i + 1
+                    break
         
         if json_end == -1:
-            logger.warning(f"⚠️ No JSON end for {tool_name}")
             continue
         
         args_str = clean[json_start:json_end]
         
-        # Подставляем содержимое файлов, если есть ссылка
+        # Подставляем содержимое файлов
         file_ref = re.search(r'"content":"==FILE:([^"]+?)==', args_str)
         if file_ref:
             filename = file_ref.group(1)
@@ -91,6 +74,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
                 )
                 logger.info(f"📄 Replaced ==FILE:{filename}== ({len(content)} chars)")
         
+        # Парсим JSON
         try:
             args = json.loads(args_str)
             tags.append({
@@ -101,6 +85,19 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
             logger.info(f"🔍 Found marker: ==MCP:{tool_name}== with args: {args}")
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON parse error for {tool_name}: {e}")
-            logger.error(f"   Args string: {args_str[:200]}...")
+            logger.error(f"   Args string preview: {args_str[:200]}...")
+            # Пробуем исправить: убираем всё после последней }
+            fixed_args = re.sub(r'\}[^}]*$', '}', args_str)
+            if fixed_args != args_str:
+                try:
+                    args = json.loads(fixed_args)
+                    tags.append({
+                        'tool': tool_name,
+                        'args': args,
+                        'original': match.group(0) + fixed_args
+                    })
+                    logger.info(f"🔍 Found marker (fixed): ==MCP:{tool_name}== with args: {args}")
+                except json.JSONDecodeError as e2:
+                    logger.error(f"❌ Still failed: {e2}")
     
     return tags
