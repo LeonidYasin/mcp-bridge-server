@@ -1,30 +1,25 @@
-"""Извлечение маркеров из текста."""
+# handlers/markers.py — исправленная версия
 
 import re
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
 
 def extract_file_markers(text: str) -> Dict[str, str]:
-    """Извлекает маркеры ==FILE:...== ==END_FILE==."""
     files = {}
-    # ИСПРАВЛЕНО: правильный regex с экранированием
     pattern = r'==FILE:([^=]+?)==\s*([\s\S]*?)\s*==END_FILE=='
-    
     for match in re.finditer(pattern, text):
         name = match.group(1).strip()
         content = match.group(2).strip()
         files[name] = content
         logger.debug(f"📁 Found file marker: {name} ({len(content)} chars)")
-    
     return files
 
 
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
     
     # Удаляем блоки кода
@@ -32,14 +27,15 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
     clean = re.sub(r'textCopyDownload[\s\S]*?(?=```|$)', '', clean)
     clean = re.sub(r'`[^`]*?`', '', clean)
     
-    # ИСПРАВЛЕНО: правильный regex для поиска маркеров
-    pattern = r'==MCP:([a-z_]+)==\s*(\{[^}]*\})'
+    # Ищем маркеры ==MCP:tool== {...}
+    # Используем более гибкое выражение — ищем от { до } с учётом вложенности
+    pattern = r'==MCP:([a-z_]+)==\s*(\{([^{}]|(?R))*\})'
     
-    for match in re.finditer(pattern, clean):
+    for match in re.finditer(pattern, clean, re.DOTALL):
         tool_name = match.group(1)
         args_str = match.group(2)
         
-        # Подставляем содержимое файлов
+        # Проверяем, есть ли ссылка на файл
         file_ref = re.search(r'"content":"==FILE:([^"]+?)==', args_str)
         if file_ref:
             filename = file_ref.group(1)
@@ -51,8 +47,6 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
                     f'"content":"{escaped}"'
                 )
                 logger.info(f"📄 Replaced ==FILE:{filename}== ({len(content)} chars)")
-            else:
-                logger.warning(f"⚠️ File not found: {filename}")
         
         try:
             args = json.loads(args_str)
@@ -61,16 +55,9 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
                 'args': args,
                 'original': match.group(0)
             })
-            logger.debug(f"🔍 Found marker: ==MCP:{tool_name}==")
+            logger.info(f"🔍 Found marker: ==MCP:{tool_name}== with args: {args}")
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON parse error for {tool_name}: {e}")
-            logger.debug(f"   Args string: {args_str[:200]}...")
+            logger.error(f"   Args string: {args_str[:200]}...")
     
     return tags
-
-
-def extract_all_markers(text: str) -> Dict:
-    """Извлекает все маркеры из текста."""
-    files = extract_file_markers(text)
-    tools = extract_mcp_tags(text, {})
-    return {'files': files, 'tools': tools}
