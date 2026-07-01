@@ -1,7 +1,7 @@
 """MCP Bridge Server — FastAPI сервер."""
 
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -55,18 +55,47 @@ async def tools_list():
 
 
 @app.post("/process")
-async def process(req: ProcessRequest) -> ProcessResponse:
+async def process(request: Request) -> ProcessResponse:
     """
     Обрабатывает сообщение из чата.
     
-    Ожидает JSON:
-    {
-        "message": "текст сообщения с маркерами",
-        "config": {"autoSend": true, "sendDelay": 1},
-        "token": "github_token",
-        "url": "http://127.0.0.1:3001/mcp"
-    }
+    Принимает JSON с полями:
+    - message: текст сообщения
+    - config: настройки (опционально)
+    - token: GitHub токен
+    - url: URL MCP-сервера
     """
+    # Получаем сырое тело запроса для диагностики кодировки
+    raw_body = await request.body()
+    logger.info(f"📨 Raw body length: {len(raw_body)} bytes")
+    
+    # Пробуем декодировать как UTF-8
+    try:
+        body_text = raw_body.decode('utf-8')
+        logger.info(f"📝 UTF-8 decoded successfully")
+    except UnicodeDecodeError:
+        # Если не получилось, пробуем Windows-1251
+        try:
+            body_text = raw_body.decode('windows-1251')
+            logger.info(f"📝 Decoded as Windows-1251")
+        except UnicodeDecodeError:
+            body_text = raw_body.decode('latin-1')
+            logger.info(f"📝 Decoded as Latin-1")
+    
+    logger.info(f"📝 Body preview: {body_text[:500]}...")
+    
+    # Парсим JSON
+    import json
+    try:
+        data = json.loads(body_text)
+        req = ProcessRequest(**data)
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ JSON decode error: {e}")
+        return ProcessResponse(error=f"Invalid JSON: {e}")
+    except Exception as e:
+        logger.error(f"❌ Parse error: {e}")
+        return ProcessResponse(error=f"Parse error: {e}")
+    
     logger.info(f"📨 Processing message ({len(req.message)} chars)")
     
     # Берём токен из запроса или из конфига
