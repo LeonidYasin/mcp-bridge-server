@@ -21,7 +21,7 @@ def extract_file_markers(text: str) -> Dict[str, str]:
 
 
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """Извлекает маркеры ==MCP:tool== {...}."""
+    """Извлекает маркеры ==MCP:tool== и парсит JSON."""
     tags = []
     
     # Удаляем блоки кода
@@ -36,25 +36,40 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         tool_name = match.group(1)
         start_pos = match.end()
         
-        # Находим JSON объект от { до }
-        # Используем простой подход: ищем от { до } с учётом вложенности
+        # Находим JSON объект
         json_start = clean.find('{', start_pos)
         if json_start == -1:
             continue
         
-        # Простой поиск — находим всё до последней } 
-        # (предполагаем, что JSON заканчивается на } и после него больше нет {)
+        # Ищем закрывающую скобку
         depth = 0
         json_end = -1
+        in_string = False
+        escape = False
+        
         for i in range(json_start, len(clean)):
             ch = clean[i]
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    json_end = i + 1
-                    break
+            
+            if escape:
+                escape = False
+                continue
+            
+            if ch == '\\':
+                escape = True
+                continue
+            
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            
+            if not in_string:
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        json_end = i + 1
+                        break
         
         if json_end == -1:
             continue
@@ -86,18 +101,5 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON parse error for {tool_name}: {e}")
             logger.error(f"   Args string preview: {args_str[:200]}...")
-            # Пробуем исправить: убираем всё после последней }
-            fixed_args = re.sub(r'\}[^}]*$', '}', args_str)
-            if fixed_args != args_str:
-                try:
-                    args = json.loads(fixed_args)
-                    tags.append({
-                        'tool': tool_name,
-                        'args': args,
-                        'original': match.group(0) + fixed_args
-                    })
-                    logger.info(f"🔍 Found marker (fixed): ==MCP:{tool_name}== with args: {args}")
-                except json.JSONDecodeError as e2:
-                    logger.error(f"❌ Still failed: {e2}")
     
     return tags
