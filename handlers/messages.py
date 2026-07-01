@@ -9,7 +9,7 @@ from handlers.executor import execute_tool
 
 logger = logging.getLogger(__name__)
 
-# Хранилище содержимого файлов
+# Хранилище содержимого файлов из маркеров ==FILE:...==
 _file_contents: dict = {}
 
 
@@ -27,10 +27,11 @@ async def process_message(req: ProcessRequest) -> ProcessResponse:
     """
     Обрабатывает сообщение из чата.
     
-    1. Извлекает ==FILE:...== маркеры
-    2. Извлекает ==MCP:...== маркеры
-    3. Выполняет инструменты
-    4. Формирует ответ
+    1. Извлекает ==FILE:...== маркеры и сохраняет содержимое
+    2. Извлекает ==MCP:tool== {...} маркеры
+    3. Подставляет содержимое файлов в аргументы
+    4. Выполняет инструменты
+    5. Формирует ответ
     """
     try:
         # 1. Извлекаем файлы
@@ -39,10 +40,11 @@ async def process_message(req: ProcessRequest) -> ProcessResponse:
             set_file_contents(files)
             logger.info(f"📁 Found files: {list(files.keys())}")
         
-        # 2. Извлекаем MCP-теги
+        # 2. Извлекаем MCP-теги (с подстановкой файлов)
         tags = extract_mcp_tags(req.message, _file_contents)
         
         if not tags:
+            logger.info("ℹ️ No MCP tags found")
             return ProcessResponse(result=None, files=files)
         
         logger.info(f"🔍 Found tools: {[t['tool'] for t in tags]}")
@@ -51,23 +53,22 @@ async def process_message(req: ProcessRequest) -> ProcessResponse:
         results = []
         for tag in tags:
             try:
-                result = await execute_tool(
+                result_text = await execute_tool(
                     tag['tool'],
                     tag['args'],
-                    req.token or "",
-                    req.url or ""
+                    req.token or "",  # токен из запроса
+                    req.url or ""     # URL MCP-сервера
                 )
                 results.append(ToolResult(
                     tool=tag['tool'],
                     success=True,
-                    result=result
+                    result=result_text
                 ))
                 logger.info(f"✅ {tag['tool']}: success")
             except Exception as e:
                 results.append(ToolResult(
                     tool=tag['tool'],
                     success=False,
-                    result="",
                     error=str(e)
                 ))
                 logger.error(f"❌ {tag['tool']}: {e}")
@@ -86,10 +87,16 @@ async def process_message(req: ProcessRequest) -> ProcessResponse:
                 summary_lines.append("")
             
             summary = "\n".join(summary_lines).strip()
-            return ProcessResponse(result=summary, tools=results, files=files)
+            return ProcessResponse(
+                result=summary,
+                tools=results,
+                files=files
+            )
         
         return ProcessResponse(result=None, files=files)
         
     except Exception as e:
         logger.error(f"❌ Process error: {e}")
+        import traceback
+        traceback.print_exc()
         return ProcessResponse(error=str(e))
