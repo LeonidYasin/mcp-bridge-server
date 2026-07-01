@@ -1,9 +1,16 @@
-"""Извлечение маркеров из текста."""
+"""Извлечение маркеров из текста с использованием json5."""
 
 import re
 import json
 import logging
 from typing import List, Dict
+
+try:
+    import json5
+    HAS_JSON5 = True
+except ImportError:
+    HAS_JSON5 = False
+    import json
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +43,12 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         tool_name = match.group(1)
         start_pos = match.end()
         
-        # Находим JSON: ищем от { до } с учётом вложенности
+        # Находим JSON объект
         json_start = clean.find('{', start_pos)
         if json_start == -1:
             continue
         
-        # Ищем закрывающую скобку
+        # Ищем закрывающую скобку с учётом вложенности
         depth = 0
         json_end = -1
         in_string = False
@@ -82,24 +89,46 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
             filename = file_ref.group(1)
             if filename in file_contents:
                 content = file_contents[filename]
-                escaped = json.dumps(content)[1:-1]
+                # Экранируем для JSON5 (поддерживает переносы)
+                escaped = content.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
                 args_str = args_str.replace(
                     f'"content":"==FILE:{filename}=="',
                     f'"content":"{escaped}"'
                 )
                 logger.info(f"📄 Replaced ==FILE:{filename}== ({len(content)} chars)")
         
-        # Парсим JSON
+        # Парсим JSON с помощью json5 (поддерживает неэкранированные символы)
         try:
-            args = json.loads(args_str)
+            if HAS_JSON5:
+                args = json5.loads(args_str)
+            else:
+                # Fallback: пробуем обычный JSON, если json5 не установлен
+                args = json.loads(args_str)
             tags.append({
                 'tool': tool_name,
                 'args': args,
                 'original': match.group(0) + args_str
             })
             logger.info(f"🔍 Found marker: ==MCP:{tool_name}== with args: {args}")
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ JSON parse error for {tool_name}: {e}")
+        except Exception as e:
+            logger.error(f"❌ Parse error for {tool_name}: {e}")
             logger.error(f"   Args string preview: {args_str[:200]}...")
+            
+            # Пробуем исправить: удаляем всё после последней }
+            fixed_args = re.sub(r'\}[^}]*$', '}', args_str)
+            if fixed_args != args_str:
+                try:
+                    if HAS_JSON5:
+                        args = json5.loads(fixed_args)
+                    else:
+                        args = json.loads(fixed_args)
+                    tags.append({
+                        'tool': tool_name,
+                        'args': args,
+                        'original': match.group(0) + fixed_args
+                    })
+                    logger.info(f"🔍 Found marker (fixed): ==MCP:{tool_name}== with args: {args}")
+                except Exception as e2:
+                    logger.error(f"❌ Still failed: {e2}")
     
     return tags
