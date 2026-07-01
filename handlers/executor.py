@@ -2,6 +2,7 @@
 
 import httpx
 import logging
+import json
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,11 @@ async def execute_tool(
     """
     if not token:
         raise Exception("GitHub token is not configured")
+    
+    if not mcp_url:
+        mcp_url = "http://127.0.0.1:3001/mcp"
+    
+    logger.debug(f"🔧 Executing {tool_name} with args: {args}")
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -70,16 +76,19 @@ async def execute_tool(
         if isinstance(result, str):
             return result
         elif isinstance(result, dict):
-            import json
             return json.dumps(result, ensure_ascii=False, indent=2)
         
         return str(result) if result else "Success (empty result)"
 
 
 async def get_tools_list(mcp_url: str, token: str) -> list:
-    """
-    Получает список доступных инструментов.
-    """
+    """Получает список доступных инструментов."""
+    if not token:
+        return []
+    
+    if not mcp_url:
+        mcp_url = "http://127.0.0.1:3001/mcp"
+    
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             mcp_url,
