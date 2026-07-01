@@ -14,18 +14,7 @@ async def execute_tool(
     token: str,
     mcp_url: str = "http://127.0.0.1:3001/mcp"
 ) -> str:
-    """
-    Вызывает MCP-инструмент через HTTP.
-    
-    Args:
-        tool_name: Имя инструмента
-        args: Аргументы
-        token: GitHub токен
-        mcp_url: URL MCP-сервера
-    
-    Returns:
-        Текстовый результат выполнения
-    """
+    """Вызывает MCP-инструмент через HTTP."""
     if not token:
         raise Exception("GitHub token is not configured")
     
@@ -33,6 +22,19 @@ async def execute_tool(
         mcp_url = "http://127.0.0.1:3001/mcp"
     
     logger.debug(f"🔧 Executing {tool_name} with args: {args}")
+    
+    # Если args пустой — пробуем извлечь из строки
+    if not args:
+        # Ищем JSON в тексте
+        import re
+        text = str(args)
+        json_match = re.search(r'\{[^}]*\}', text)
+        if json_match:
+            try:
+                args = json.loads(json_match.group(0))
+                logger.info(f"🔧 Extracted args from text: {args}")
+            except:
+                pass
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
@@ -60,7 +62,6 @@ async def execute_tool(
         if data.get("error"):
             raise Exception(data["error"].get("message", "Unknown error"))
         
-        # Извлекаем текст из ответа
         content = data.get("result", {}).get("content", [])
         if content and isinstance(content, list):
             texts = []
@@ -71,7 +72,6 @@ async def execute_tool(
                     texts.append(item)
             return "\n".join(texts) if texts else "Success (no text content)"
         
-        # Если нет content, пробуем получить result как строку
         result = data.get("result")
         if isinstance(result, str):
             return result
@@ -79,33 +79,3 @@ async def execute_tool(
             return json.dumps(result, ensure_ascii=False, indent=2)
         
         return str(result) if result else "Success (empty result)"
-
-
-async def get_tools_list(mcp_url: str, token: str) -> list:
-    """Получает список доступных инструментов."""
-    if not token:
-        return []
-    
-    if not mcp_url:
-        mcp_url = "http://127.0.0.1:3001/mcp"
-    
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            mcp_url,
-            json={
-                "jsonrpc": "2.0",
-                "id": "list",
-                "method": "tools/list",
-                "params": {}
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }
-        )
-        
-        if response.status_code != 200:
-            return []
-        
-        data = response.json()
-        return data.get("result", {}).get("tools", [])
