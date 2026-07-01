@@ -22,6 +22,7 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# CORS для доступа из браузера
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,6 +34,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
+    """Проверка состояния сервера."""
     return {
         "status": "ok",
         "version": "0.1.0",
@@ -43,6 +45,7 @@ async def health():
 
 @app.get("/tools")
 async def tools_list():
+    """Список доступных инструментов."""
     try:
         tools = await get_tools_list(config.MCP_URL, config.GITHUB_TOKEN)
         return {"tools": tools}
@@ -53,13 +56,30 @@ async def tools_list():
 
 @app.post("/process")
 async def process(req: ProcessRequest) -> ProcessResponse:
+    """
+    Обрабатывает сообщение из чата.
+    
+    Ожидает JSON:
+    {
+        "message": "текст сообщения с маркерами",
+        "config": {"autoSend": true, "sendDelay": 1},
+        "token": "github_token",
+        "url": "http://127.0.0.1:3001/mcp"
+    }
+    """
     logger.info(f"📨 Processing message ({len(req.message)} chars)")
     
+    # Берём токен из запроса или из конфига
     token = req.token or config.GITHUB_TOKEN
-    url = req.url or config.MCP_URL
     
     if not token:
         logger.warning("⚠️ No GitHub token provided")
+        return ProcessResponse(
+            error="GitHub token is not configured. Please set it in extension settings."
+        )
+    
+    # Передаём токен в обработчик
+    req.token = token
     
     try:
         result = await process_message(req)
@@ -72,6 +92,7 @@ async def process(req: ProcessRequest) -> ProcessResponse:
 
 
 def main():
+    """Запуск сервера."""
     logger.info(f"🚀 Starting MCP Bridge Server v0.1.0")
     logger.info(f"   Host: {config.HOST}")
     logger.info(f"   Port: {config.PORT}")
