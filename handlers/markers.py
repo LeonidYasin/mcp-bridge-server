@@ -24,21 +24,15 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
     """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
     
-    # ДИАГНОСТИКА: показываем, что ищем
+    # НЕ УДАЛЯЕМ блоки кода!
+    # Просто ищем маркеры прямо в тексте
     logger.info(f"🔍 Searching for markers in text (first 300 chars): {text[:300]}...")
-    
-    # Удаляем блоки кода
-    clean = re.sub(r'```[\s\S]*?```', '', text)
-    clean = re.sub(r'textCopyDownload[\s\S]*?(?=```|$)', '', clean)
-    clean = re.sub(r'`[^`]*?`', '', clean)
-    
-    logger.info(f"🔍 Cleaned text (first 300 chars): {clean[:300]}...")
     
     # Ищем маркеры ==MCP:tool==
     marker_pattern = r'==MCP:([a-z_]+)=='
     
     matches_found = 0
-    for match in re.finditer(marker_pattern, clean):
+    for match in re.finditer(marker_pattern, text):
         matches_found += 1
         tool_name = match.group(1)
         start_pos = match.end()
@@ -46,7 +40,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         logger.info(f"🔍 Found marker: ==MCP:{tool_name}== at position {start_pos}")
         
         # Находим JSON объект
-        json_start = clean.find('{', start_pos)
+        json_start = text.find('{', start_pos)
         if json_start == -1:
             logger.warning(f"⚠️ No JSON start for {tool_name}")
             continue
@@ -57,8 +51,8 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         in_string = False
         escape = False
         
-        for i in range(json_start, len(clean)):
-            ch = clean[i]
+        for i in range(json_start, len(text)):
+            ch = text[i]
             
             if escape:
                 escape = False
@@ -85,7 +79,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
             logger.warning(f"⚠️ No JSON end for {tool_name}")
             continue
         
-        args_str = clean[json_start:json_end]
+        args_str = text[json_start:json_end]
         logger.info(f"📄 Args string: {args_str[:200]}...")
         
         # Подставляем содержимое файлов
