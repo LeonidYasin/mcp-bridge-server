@@ -21,7 +21,7 @@ def extract_file_markers(text: str) -> Dict[str, str]:
 
 
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
-    """Извлекает маркеры ==MCP:tool== {...}."""
+    """Извлекает маркеры ==MCP:tool== и парсит JSON."""
     tags = []
     
     # Удаляем блоки кода
@@ -36,7 +36,7 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         tool_name = match.group(1)
         start_pos = match.end()
         
-        # Находим JSON объект
+        # Находим JSON: ищем от { до } с учётом вложенности
         json_start = clean.find('{', start_pos)
         if json_start == -1:
             continue
@@ -76,15 +76,13 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         
         args_str = clean[json_start:json_end]
         
-        # Подставляем содержимое файлов с правильным экранированием
+        # Подставляем содержимое файлов
         file_ref = re.search(r'"content":"==FILE:([^"]+?)==', args_str)
         if file_ref:
             filename = file_ref.group(1)
             if filename in file_contents:
                 content = file_contents[filename]
-                # Экранируем содержимое для JSON
-                escaped = json.dumps(content)[1:-1]  # убираем внешние кавычки
-                # Заменяем в аргументах, экранируя кавычки и переносы
+                escaped = json.dumps(content)[1:-1]
                 args_str = args_str.replace(
                     f'"content":"==FILE:{filename}=="',
                     f'"content":"{escaped}"'
