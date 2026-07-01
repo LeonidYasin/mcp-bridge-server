@@ -1,4 +1,27 @@
+"""Извлечение маркеров из текста."""
+
+import re
+import json
+import logging
+from typing import List, Dict
+
+logger = logging.getLogger(__name__)
+
+
+def extract_file_markers(text: str) -> Dict[str, str]:
+    """Извлекает маркеры ==FILE:...== ==END_FILE==."""
+    files = {}
+    pattern = r'==FILE:([^=]+?)==\s*([\s\S]*?)\s*==END_FILE=='
+    for match in re.finditer(pattern, text):
+        name = match.group(1).strip()
+        content = match.group(2).strip()
+        files[name] = content
+        logger.debug(f"📁 Found file marker: {name} ({len(content)} chars)")
+    return files
+
+
 def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
+    """Извлекает маркеры ==MCP:tool== {...}."""
     tags = []
     
     # Ищем маркеры ==MCP:tool==
@@ -44,16 +67,14 @@ def extract_mcp_tags(text: str, file_contents: Dict[str, str]) -> List[Dict]:
         
         args_str = text[json_start:json_end]
         
-        # ПРОВЕРКА: если это плейсхолдер, пропускаем
+        # Пропускаем плейсхолдеры
         if args_str in ['{...}', '{tool_name}']:
             logger.debug(f"⏭️ Skipping placeholder for {tool_name}")
             continue
         
-        # ПРОВЕРКА: если в args_str есть \", значит это экранированный JSON внутри строки
+        # Пробуем исправить экранированные кавычки
         if '\\"' in args_str:
-            # Пробуем убрать экранирование
             try:
-                # Заменяем \" на "
                 fixed_args = args_str.replace('\\"', '"')
                 args = json.loads(fixed_args)
                 tags.append({
